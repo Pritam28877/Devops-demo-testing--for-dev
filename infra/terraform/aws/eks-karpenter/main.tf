@@ -78,6 +78,36 @@ resource "helm_release" "karpenter" {
   ]
 }
 
+resource "helm_release" "argocd" {
+  count      = var.enable_argocd ? 1 : 0
+  name       = "argo-cd"
+  repository = "https://argoproj.github.io/argo-helm"
+  chart      = "argo-cd"
+  version    = var.argocd_chart_version
+  namespace  = "argocd"
+  create_namespace = true
+
+  values = [
+    yamlencode({
+      server = {
+        service = {
+          type = var.argocd_service_type
+        }
+      }
+    })
+  ]
+}
+
+resource "helm_release" "argo_rollouts" {
+  count      = var.enable_argo_rollouts ? 1 : 0
+  name       = "argo-rollouts"
+  repository = "https://argoproj.github.io/argo-helm"
+  chart      = "argo-rollouts"
+  version    = var.argo_rollouts_chart_version
+  namespace  = "argo-rollouts"
+  create_namespace = true
+}
+
 output "cluster_name" {
   value = module.eks.cluster_name
 }
