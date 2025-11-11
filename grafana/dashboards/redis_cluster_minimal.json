@@ -1,0 +1,26 @@
+{
+  "title": "Redis Cluster Minimal",
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "version": 1,
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Up (node_exporter)",
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "targets": [
+        {"expr": "up{job=\"node\"}", "refId": "A"}
+      ],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}}
+    },
+    {
+      "type": "graph",
+      "title": "Redis Ops/sec",
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "targets": [
+        {"expr": "rate(redis_commands_processed_total[1m])", "refId": "A"}
+      ]
+    }
+  ]
+}
+

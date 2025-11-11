@@ -1,0 +1,47 @@
+nodes:
+  - 10.0.0.11
+  - 10.0.0.12
+  - 10.0.0.13
+ports:
+  base: 7000
+  count_per_host: 2
+cluster:
+  masters: 3
+  replicas_per_master: 1
+  create: true
+persistence:
+  mode: aof
+  aof_fsync: everysec
+  rdb_save:
+    - "900 1"
+    - "300 10"
+    - "60 10000"
+observability:
+  enable_node_exporter: true
+  enable_redis_exporter: true
+  redis_exporter_per_instance: true
+  exporter_version_node: "1.8.2"
+  exporter_version_redis: "1.58.0"
+  grafana:
+    enabled: false
+    url: ""
+    api_token_env: "GRAFANA_API_TOKEN"
+    datasource_name: "Prometheus"
+    provision_dashboards: false
+    dashboard_files:
+      - grafana/dashboards/redis_cluster_minimal.json
+platform:
+  kind: baremetal
+  tf_state_path: ""
+paths:
+  install_prefix: /usr/local
+  config_dir: /etc/redis
+  data_dir: /var/lib/redis
+  log_dir: /var/log/redis
+redis_version: "7.2.5"
+disable_swap: true
+ssh:
+  # Override via env: REDIS_DEPLOY_SSH_USER, REDIS_DEPLOY_SSH_PASSWORD, REDIS_DEPLOY_SSH_KEY
+  user: ""
+  port: 22
+
