@@ -14,6 +14,17 @@ class SSHConfig:
 	password: str = field(default_factory=lambda: os.environ.get("REDIS_DEPLOY_SSH_PASSWORD", ""))
 	private_key: str = field(default_factory=lambda: os.environ.get("REDIS_DEPLOY_SSH_KEY", ""))
 	strict_host_key_checking: bool = False
+	timeout: int = 30
+	connection_retries: int = 3
+
+	def validate_credentials(self, strict: bool = True) -> None:
+		"""Validate that we have proper SSH credentials configured"""
+		if strict and not self.user:
+			raise ValueError("SSH user must be specified either in config or environment variable REDIS_DEPLOY_SSH_USER")
+		if strict and not self.password and not self.private_key:
+			raise ValueError("Either SSH password or private key must be specified")
+		if self.private_key and os.path.exists(self.private_key) and not os.path.exists(self.private_key):
+			raise ValueError(f"SSH private key file not found: {self.private_key}")
 
 
 @dataclass
@@ -27,6 +38,19 @@ class PersistenceConfig:
 	mode: str = "aof"  # aof|rdb|both|none
 	aof_fsync: str = "everysec"  # always|everysec|no
 	rdb_save: List[str] = field(default_factory=lambda: ["900 1", "300 10", "60 10000"])
+	aof_rewrite_perc: int = 100
+	aof_rewrite_min_size: str = "64mb"
+	rdb_compression: bool = True
+	rdb_checksum: bool = True
+
+	def validate(self) -> None:
+		"""Validate persistence configuration"""
+		if self.mode not in {"aof", "rdb", "both", "none"}:
+			raise ValueError("persistence.mode must be one of: aof|rdb|both|none")
+		if self.aof_fsync not in {"always", "everysec", "no"}:
+			raise ValueError("persistence.aof_fsync must be one of: always|everysec|no")
+		if self.aof_rewrite_perc < 0:
+			raise ValueError("persistence.aof_rewrite_perc must be >= 0")
 
 
 @dataclass
@@ -82,12 +106,17 @@ class TopologyConfig:
 	paths: PathsConfig = field(default_factory=PathsConfig)
 	redis_version: str = "7.2.5"
 	disable_swap: bool = True
+	swap_management: Dict[str, Any] = field(default_factory=lambda: {
+		"disable_permanently": True,
+		"set_swappiness": 1,
+		"configure_overcommit": True
+	})
 	ssh: SSHConfig = field(default_factory=SSHConfig)
 
 	def total_instances(self) -> int:
 		return len(self.nodes) * self.ports.count_per_host
 
-	def validate(self) -> None:
+	def validate(self, strict_ssh: bool = False) -> None:
 		if self.cluster.masters <= 0:
 			raise ValueError("cluster.masters must be > 0")
 		if self.cluster.replicas_per_master < 0:
@@ -97,6 +126,17 @@ class TopologyConfig:
 		required_instances = self.cluster.masters * (1 + self.cluster.replicas_per_master)
 		if required_instances > self.total_instances():
 			raise ValueError("Not enough instances for masters + replicas per host/ports")
+		
+		# Validate persistence configuration
+		self.persistence.validate()
+		
+		# Validate SSH configuration
+		self.ssh.validate_credentials(strict=strict_ssh)
+		
+		# Validate nodes are properly specified
+		if not self.nodes:
+			raise ValueError("At least one node must be specified")
+		
 		if self.persistence.mode not in {"aof", "rdb", "both", "none"}:
 			raise ValueError("persistence.mode must be one of: aof|rdb|both|none")
 		if self.ports.base < 1024 or self.ports.base > 65500:
@@ -127,6 +167,10 @@ def load_config(path: str) -> TopologyConfig:
 		mode=str(persistence_raw.get("mode", "aof")),
 		aof_fsync=str(persistence_raw.get("aof_fsync", "everysec")),
 		rdb_save=[str(s) for s in persistence_raw.get("rdb_save", ["900 1", "300 10", "60 10000"])],
+		aof_rewrite_perc=int(persistence_raw.get("aof_rewrite_perc", 100)),
+		aof_rewrite_min_size=str(persistence_raw.get("aof_rewrite_min_size", "64mb")),
+		rdb_compression=bool(persistence_raw.get("rdb_compression", True)),
+		rdb_checksum=bool(persistence_raw.get("rdb_checksum", True)),
 	)
 	paths_raw = raw.get("paths", {})
 	paths = PathsConfig(
@@ -165,8 +209,17 @@ def load_config(path: str) -> TopologyConfig:
 		password=str(ssh_raw.get("password", os.environ.get("REDIS_DEPLOY_SSH_PASSWORD", ""))),
 		private_key=str(ssh_raw.get("private_key", os.environ.get("REDIS_DEPLOY_SSH_KEY", ""))),
 		strict_host_key_checking=bool(ssh_raw.get("strict_host_key_checking", False)),
+		timeout=int(ssh_raw.get("timeout", 30)),
+		connection_retries=int(ssh_raw.get("connection_retries", 3)),
 	)
 
+	swap_mgmt_raw = raw.get("swap_management", {})
+	swap_management = {
+		"disable_permanently": bool(swap_mgmt_raw.get("disable_permanently", True)),
+		"set_swappiness": int(swap_mgmt_raw.get("set_swappiness", 1)),
+		"configure_overcommit": bool(swap_mgmt_raw.get("configure_overcommit", True))
+	}
+	
 	cfg = TopologyConfig(
 		nodes=[str(n) for n in raw["nodes"]],
 		ports=ports,
@@ -177,6 +230,7 @@ def load_config(path: str) -> TopologyConfig:
 		persistence=persistence,
 		redis_version=str(raw.get("redis_version", "7.2.5")),
 		disable_swap=bool(raw.get("disable_swap", True)),
+		swap_management=swap_management,
 		ssh=ssh,
 	)
 	cfg.validate()

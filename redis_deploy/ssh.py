@@ -18,12 +18,13 @@ class SSHCredentials:
 
 
 class SSH:
-	def __init__(self, creds: SSHCredentials, timeout_s: int = 30, dry_run: bool = False):
+	def __init__(self, creds: SSHCredentials, timeout_s: int = 30, dry_run: bool = False, retries: int = 3):
 		self.creds = creds
 		self.timeout_s = timeout_s
 		self.client: Optional[paramiko.SSHClient] = None
 		self.sftp: Optional[paramiko.SFTPClient] = None
 		self.dry_run = dry_run
+		self.retries = retries
 
 	def __enter__(self) -> "SSH":
 		self.connect()
@@ -35,21 +36,49 @@ class SSH:
 	def connect(self) -> None:
 		if self.dry_run:
 			return
-		self.client = paramiko.SSHClient()
-		self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-		connect_kwargs = {
-			"hostname": self.creds.host,
-			"username": self.creds.user,
-			"port": self.creds.port,
-			"timeout": self.timeout_s,
-		}
-		if self.creds.private_key:
-			pkey = paramiko.RSAKey.from_private_key_file(self.creds.private_key)
-			connect_kwargs["pkey"] = pkey
-		if self.creds.password:
-			connect_kwargs["password"] = self.creds.password
-		self.client.connect(**connect_kwargs)
-		self.sftp = self.client.open_sftp()
+		
+		last_error = None
+		for attempt in range(self.retries):
+			try:
+				self.client = paramiko.SSHClient()
+				self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+				connect_kwargs = {
+					"hostname": self.creds.host,
+					"username": self.creds.user,
+					"port": self.creds.port,
+					"timeout": self.timeout_s,
+				}
+				
+				if self.creds.private_key:
+					try:
+						# Try different key types
+						for key_class in [paramiko.RSAKey, paramiko.Ed25519Key, paramiko.ECDSAKey, paramiko.DSSKey]:
+							try:
+								pkey = key_class.from_private_key_file(self.creds.private_key)
+								connect_kwargs["pkey"] = pkey
+								break
+							except paramiko.SSHException:
+								continue
+						else:
+							raise paramiko.SSHException(f"Unable to load private key from {self.creds.private_key}")
+					except Exception as e:
+						raise paramiko.SSHException(f"Error loading private key: {e}")
+				
+				if self.creds.password:
+					connect_kwargs["password"] = self.creds.password
+				
+				self.client.connect(**connect_kwargs)
+				self.sftp = self.client.open_sftp()
+				return  # Success
+				
+			except Exception as e:
+				last_error = e
+				if attempt < self.retries - 1:
+					import time
+					time.sleep(2 ** attempt)  # Exponential backoff
+				self.close()  # Clean up failed connection
+		
+		raise RuntimeError(f"Failed to connect to {self.creds.host} after {self.retries} attempts. Last error: {last_error}")
 
 	def close(self) -> None:
 		if self.sftp:

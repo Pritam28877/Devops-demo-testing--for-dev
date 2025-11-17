@@ -1,0 +1,122 @@
+# Redis Cluster Configuration Template
+# ====================================
+# 
+# This configuration file provides comprehensive settings for deploying
+# a Redis cluster with enhanced features:
+# - SSH credentials management
+# - System optimization (swap disable, kernel tuning)  
+# - RDB/AOF persistence configuration
+# - Cluster health validation
+# - Observability setup
+
+# Node Configuration
+# List of IP addresses or hostnames for Redis cluster nodes
+nodes:
+  - 10.0.0.11
+  - 10.0.0.12
+  - 10.0.0.13
+  # Add more nodes as needed
+  # - 10.0.0.14
+  # - 10.0.0.15
+  # - 10.0.0.16
+
+# Port Configuration
+ports:
+  base: 7000                    # Starting port number
+  count_per_host: 2             # Number of Redis instances per host
+
+# Cluster Configuration
+cluster:
+  masters: 3                    # Number of master nodes
+  replicas_per_master: 1        # Number of replicas per master
+  create: true                  # Whether to create cluster automatically
+
+# Persistence Configuration
+persistence:
+  mode: aof                     # aof|rdb|both|none
+  
+  # AOF (Append Only File) Settings
+  aof_fsync: everysec          # always|everysec|no
+  aof_rewrite_perc: 100        # Trigger AOF rewrite when size increases by this percentage
+  aof_rewrite_min_size: "64mb" # Minimum size before AOF rewrite
+  
+  # RDB (Redis Database) Settings  
+  rdb_compression: true        # Enable RDB compression
+  rdb_checksum: true           # Enable RDB checksum
+  rdb_save:                    # RDB save points (seconds changes)
+    - "900 1"                  # Save after 900 sec if at least 1 key changed
+    - "300 10"                 # Save after 300 sec if at least 10 keys changed
+    - "60 10000"               # Save after 60 sec if at least 10000 keys changed
+
+# System Optimization
+redis_version: "7.2.5"
+disable_swap: true
+
+# Enhanced Swap Management
+swap_management:
+  disable_permanently: true     # Permanently disable swap in /etc/fstab
+  set_swappiness: 1            # Set vm.swappiness value (0-100)
+  configure_overcommit: true   # Configure memory overcommit for Redis
+
+# SSH Configuration
+ssh:
+  user: ""                     # SSH username (can use REDIS_DEPLOY_SSH_USER env var)
+  port: 22                     # SSH port
+  password: ""                 # SSH password (can use REDIS_DEPLOY_SSH_PASSWORD env var) 
+  private_key: ""              # SSH private key path (can use REDIS_DEPLOY_SSH_KEY env var)
+  strict_host_key_checking: false  # Skip host key verification
+  timeout: 30                  # SSH connection timeout in seconds
+  connection_retries: 3        # Number of SSH connection retry attempts
+
+# File System Paths
+paths:
+  install_prefix: /usr/local   # Redis installation prefix
+  config_dir: /etc/redis       # Redis configuration directory
+  data_dir: /var/lib/redis     # Redis data directory
+  log_dir: /var/log/redis      # Redis log directory
+
+# Observability Configuration
+observability:
+  enable_node_exporter: true
+  enable_redis_exporter: true
+  redis_exporter_per_instance: true
+  exporter_version_node: "1.8.2"
+  exporter_version_redis: "1.58.0"
+  
+  # Grafana Integration
+  grafana:
+    enabled: false             # Enable Grafana dashboard provisioning
+    url: ""                    # Grafana URL
+    api_token_env: "GRAFANA_API_TOKEN"  # Environment variable for API token
+    datasource_name: "Prometheus"       # Prometheus datasource name
+    provision_dashboards: false        # Auto-provision dashboards
+    dashboard_files:
+      - grafana/dashboards/redis_cluster_minimal.json
+
+# Platform Configuration
+platform:
+  kind: baremetal             # baremetal|aws-ec2|eks
+  tf_state_path: ""           # Terraform state directory (if using Terraform)
+
+# Environment Variables Reference:
+# ================================
+# REDIS_DEPLOY_SSH_USER     - SSH username for all nodes
+# REDIS_DEPLOY_SSH_PASSWORD - SSH password (if not using private key)
+# REDIS_DEPLOY_SSH_KEY      - Path to SSH private key file
+# REDIS_DEPLOY_SSH_PORT     - SSH port (default: 22)
+# GRAFANA_API_TOKEN         - Grafana API token for dashboard provisioning
+
+# Usage Examples:
+# ===============
+# 1. Set environment variables:
+#    export REDIS_DEPLOY_SSH_USER=ubuntu
+#    export REDIS_DEPLOY_SSH_KEY=/path/to/private/key
+#
+# 2. Run pre-validation:
+#    python setup_redis_cluster.py --config this_file.yaml --action pre-validate
+#
+# 3. Deploy cluster:
+#    python setup_redis_cluster.py --config this_file.yaml --action deploy
+#
+# 4. Validate cluster:
+#    python setup_redis_cluster.py --config this_file.yaml --action validate

@@ -10,8 +10,12 @@ cluster:
   replicas_per_master: 1
   create: true
 persistence:
-  mode: aof
-  aof_fsync: everysec
+  mode: aof  # aof|rdb|both|none
+  aof_fsync: everysec  # always|everysec|no
+  aof_rewrite_perc: 100
+  aof_rewrite_min_size: "64mb"
+  rdb_compression: true
+  rdb_checksum: true
   rdb_save:
     - "900 1"
     - "300 10"
@@ -40,8 +44,17 @@ paths:
   log_dir: /var/log/redis
 redis_version: "7.2.5"
 disable_swap: true
+swap_management:
+  disable_permanently: true
+  set_swappiness: 1
+  configure_overcommit: true
 ssh:
   # Override via env: REDIS_DEPLOY_SSH_USER, REDIS_DEPLOY_SSH_PASSWORD, REDIS_DEPLOY_SSH_KEY
   user: ""
   port: 22
+  password: ""
+  private_key: ""
+  strict_host_key_checking: false
+  timeout: 30
+  connection_retries: 3
 

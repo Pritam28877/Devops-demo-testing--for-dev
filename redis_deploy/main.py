@@ -39,6 +39,10 @@ def deploy(config: str = typer.Option(..., "--config", "-c", help="Path to YAML 
 	"""
 	configure_logging()
 	cfg = load_config(config)
+	
+	# Strict validation before deployment
+	cfg.validate(strict_ssh=True)
+	
 	rprint("[bold green]Loaded config[/bold green]")
 	masters, replicas = assign_roles(cfg)
 	rprint(f"Planned masters: {[f'{m.host}:{m.port}' for m in masters]}")
@@ -49,7 +53,7 @@ def deploy(config: str = typer.Option(..., "--config", "-c", help="Path to YAML 
 	for host in cfg.nodes:
 		with _ssh_for_host(cfg, host, dry_run=dry_run) as ssh:
 			if cfg.disable_swap:
-				disable_swap(ssh)
+				disable_swap(ssh, cfg.swap_management)
 			install_redis_from_source(ssh, cfg.redis_version, cfg.paths.install_prefix)
 			for i in range(cfg.ports.count_per_host):
 				port = cfg.ports.base + i
@@ -70,6 +74,45 @@ def validate(config: str = typer.Option(..., "--config", "-c")) -> None:
 	cfg = load_config(config)
 	validate_cluster(cfg, dry_run=False)
 	rprint("[bold green]Validation OK[/bold green]")
+
+
+@app.command("pre-validate")  
+def pre_validate(config: str = typer.Option(..., "--config", "-c")) -> None:
+	"""Validate configuration and system prerequisites before deployment"""
+	configure_logging()
+	cfg = load_config(config)
+	
+	rprint("[bold blue]Pre-deployment validation starting...[/bold blue]")
+	
+	# Test SSH connectivity to all nodes
+	for host in cfg.nodes:
+		try:
+			with _ssh_for_host(cfg, host, dry_run=False) as ssh:
+				code, out, _ = ssh.run("echo 'SSH connection test'", sudo=False)
+				if code == 0:
+					rprint(f"✓ SSH connection to {host} successful")
+				else:
+					rprint(f"✗ SSH connection to {host} failed")
+					return
+		except Exception as e:
+			rprint(f"✗ SSH connection to {host} failed: {e}")
+			return
+	
+	# Validate system requirements on all nodes
+	from .install import validate_system_requirements
+	for host in cfg.nodes:
+		try:
+			with _ssh_for_host(cfg, host, dry_run=False) as ssh:
+				if validate_system_requirements(ssh):
+					rprint(f"✓ System requirements on {host} satisfied")
+				else:
+					rprint(f"✗ System requirements on {host} not satisfied")
+					return
+		except Exception as e:
+			rprint(f"✗ System validation on {host} failed: {e}")
+			return
+	
+	rprint("[bold green]Pre-deployment validation completed successfully[/bold green]")
 
 
 @app.command("rollback")
